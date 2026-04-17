@@ -545,8 +545,9 @@ function initializeCharts() {
             metric: 'bpm',
             label: 'Heart Rate (BPM)',
             color: CHART_COLORS.bpm,
-            min: -50,
-            max: 250
+            min: 0,
+            max: 250,
+            stepSize: 50
         },
         {
             id: 'spo2Chart',
@@ -561,8 +562,9 @@ function initializeCharts() {
             metric: 'temp',
             label: 'Temperature (°C)',
             color: CHART_COLORS.temp,
-            min: 10,
-            max: 60
+            min: 0,
+            max: 60,
+            stepSize: 10
         },
         {
             id: 'humidityChart',
@@ -570,7 +572,8 @@ function initializeCharts() {
             label: 'Humidity (%)',
             color: CHART_COLORS.humidity,
             min: 0,
-            max: 100
+            max: 100,
+            stepSize: 10
         }
     ];
 
@@ -594,7 +597,7 @@ function initializeCharts() {
                         pointBackgroundColor: config.color,
                         pointBorderColor: '#fff',
                         pointBorderWidth: 2,
-                        tension: 0.4,
+                        tension: 0,
                         spanGaps: true
                     }
                 ]
@@ -602,6 +605,10 @@ function initializeCharts() {
             options: {
                 responsive: true,
                 maintainAspectRatio: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
                 plugins: {
                     legend: {
                         display: true,
@@ -611,16 +618,45 @@ function initializeCharts() {
                             padding: 15,
                             font: { size: 12, weight: '600' }
                         }
+                    },
+                    // Add tooltip configuration
+                    tooltip: {
+                        enabled: true,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        padding: 10,
+                        cornerRadius: 6,
+                        displayColors: false,
+                        titleFont: { size: 12, weight: 'bold' },
+                        bodyFont: { size: 11 },
+                        callbacks: {
+                            title: function(context) {
+                                return `⏰ ${context[0].label}`;
+                            },
+                            label: function(context) {
+                                const value = context.parsed.y;
+                                if (value === null || value === undefined) return 'No Data';
+                                
+                                const units = {
+                                    'bpm': 'bpm',
+                                    'spo2': '%',
+                                    'temp': '°C',
+                                    'humidity': '%'
+                                };
+                                const unit = units[config.metric] || '';
+                                return `📊 ${value.toFixed(1)} ${unit}`;
+                            }
+                        }
                     }
                 },
                 scales: {
                     y: {
-                        beginAtZero: false,
+                        beginAtZero: true,
                         min: config.min,
                         max: config.max,
+                        grace: '0%',
                         ticks: { 
                             font: { size: 11 },
-                            stepSize: config.metric === 'temp' ? 10 : (config.metric === 'bpm' ? 50 : undefined)
+                            stepSize: config.stepSize
                         },
                         grid: { color: 'rgba(0, 0, 0, 0.05)' }
                     },
@@ -636,16 +672,32 @@ function initializeCharts() {
 
 function updateCharts() {
     Object.keys(state.chartInstances).forEach(metric => {
+        if (metric === 'fullscreen') return; // Skip fullscreen chart
+        
         const chart = state.chartInstances[metric];
         if (!chart) return;
 
-        const data = state.chartData[metric];
+        // Get data for this metric
+        let data = state.chartData[metric];
+        
+        // Validate data
+        if (!Array.isArray(data)) {
+            console.warn(`⚠️ Invalid data for ${metric}`);
+            data = [];
+        }
 
-        // Update labels and data
-        chart.data.labels = data.map(point => point.x);
-        chart.data.datasets[0].data = data.map(point => point.y);
+        // Filter null values for cleaner display
+        const validData = data.filter(p => p && p.y !== null && p.y !== undefined);
 
-        chart.update('none'); // Update without animation for smooth real-time updates
+        try {
+            // Update labels and data
+            chart.data.labels = validData.map(p => p.x);
+            chart.data.datasets[0].data = validData.map(p => p.y);
+
+            chart.update('none'); // Update without animation for smooth real-time updates
+        } catch (error) {
+            console.error(`❌ Error updating chart for ${metric}:`, error);
+        }
     });
 }
 
@@ -654,7 +706,12 @@ function updateCharts() {
 // ========================================
 
 function changeTimeWindow(minutes) {
+    console.log(`🎯 changeTimeWindow called with: ${minutes} minutes`);
+    console.log(`📊 Socket state: ${state.socket ? 'EXISTS' : 'NULL'}`);
+    console.log(`📊 Socket connected: ${state.socket?.connected ?? 'N/A'}`);
+    
     if (!state.socket) {
+        console.warn('⚠️ Socket not connected yet!');
         alert('Not connected to backend. Please wait...');
         return;
     }
@@ -696,8 +753,13 @@ function clearMetricsDisplay() {
 
 function attachEventListeners() {
     // Time window buttons
-    document.querySelectorAll('.btn-window').forEach(btn => {
-        btn.addEventListener('click', () => {
+    const buttons = document.querySelectorAll('.btn-window');
+    console.log(`🔍 Found ${buttons.length} time window buttons`);
+    
+    buttons.forEach(btn => {
+        console.log(`📍 Attaching listener to button: ${btn.dataset.window}m`);
+        btn.addEventListener('click', (e) => {
+            console.log(`✅ Button clicked: ${btn.dataset.window}m`, e);
             const minutes = parseInt(btn.dataset.window);
             changeTimeWindow(minutes);
         });
@@ -731,15 +793,19 @@ function initialize() {
     console.log('🚀 Initializing PulseStream Dashboard...');
 
     // Check if backend is running
+    console.log('📡 Testing backend connection...');
     testBackendConnection();
 
     // Initialize Socket.IO
+    console.log('🔌 Initializing Socket.IO...');
     initializeSocket();
 
     // Initialize Charts
+    console.log('📊 Initializing Charts...');
     initializeCharts();
 
     // Attach event listeners
+    console.log('🎯 Attaching event listeners...');
     attachEventListeners();
 
     console.log('✅ Dashboard initialized');
@@ -826,14 +892,28 @@ const modalState = {
  * Update fullscreen chart with latest data
  */
 function updateFullscreenChart() {
-    if (!modalState.fullscreenMetric || !state.chartData[modalState.fullscreenMetric]) return;
-    
-    const chartData = state.chartData[modalState.fullscreenMetric];
-    
-    if (state.chartInstances.fullscreen) {
-        state.chartInstances.fullscreen.data.labels = chartData.map(p => p.x);
-        state.chartInstances.fullscreen.data.datasets[0].data = chartData.map(p => p.y);
-        state.chartInstances.fullscreen.update('none'); // Update without animation
+    try {
+        if (!modalState.fullscreenMetric || !state.chartData[modalState.fullscreenMetric]) {
+            console.warn('⚠️ Fullscreen chart data not available');
+            return;
+        }
+        
+        const chart = state.chartInstances.fullscreen;
+        if (!chart) return;
+        
+        const metricType = modalState.fullscreenMetric;
+        const chartData = state.chartData[metricType];
+        
+        // Filter out null values
+        const validData = chartData.filter(p => p && p.y !== null && p.y !== undefined);
+        
+        // Update chart data
+        chart.data.labels = validData.map(p => p.x);
+        chart.data.datasets[0].data = validData.map(p => p.y);
+        chart.update('none'); // Update without animation
+        
+    } catch (error) {
+        console.error('❌ Error updating fullscreen chart:', error);
     }
 }
 
@@ -910,55 +990,108 @@ function openFullscreenGraph(metricType, chartData) {
         state.chartInstances.fullscreen.destroy();
     }
 
-    // Create new chart
-    state.chartInstances.fullscreen = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: chartData.map(p => p.x),
-            datasets: [{
-                label: modalState.staticTitles[metricType],
-                data: chartData.map(p => p.y),
-                borderColor: CHART_COLORS[metricType],
-                backgroundColor: `${CHART_COLORS[metricType]}20`,
-                tension: 0.4,
-                fill: true,
-                pointRadius: 4,
-                pointHoverRadius: 6,
-                pointBackgroundColor: CHART_COLORS[metricType]
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    enabled: false
-                }
+    // Filter out null values for cleaner display
+    const validData = chartData.filter(p => p.y !== null && p.y !== undefined);
+    
+    // If no valid data, show message
+    if (validData.length === 0) {
+        console.warn('⚠️ No valid data to display');
+        return;
+    }
+
+    try {
+        // Create new chart with improved configuration
+        state.chartInstances.fullscreen = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: validData.map(p => p.x),
+                datasets: [{
+                    label: modalState.staticTitles[metricType],
+                    data: validData.map(p => p.y),
+                    borderColor: CHART_COLORS[metricType],
+                    backgroundColor: `${CHART_COLORS[metricType]}20`,
+                    tension: 0,
+                    fill: true,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: CHART_COLORS[metricType],
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    spanGaps: true
+                }]
             },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        color: getComputedStyle(document.documentElement).getPropertyValue('--text-primary')
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        enabled: false
                     },
-                    grid: {
-                        color: getComputedStyle(document.documentElement).getPropertyValue('--border-color')
+                    // Add tooltip configuration for hover display
+                    tooltip: {
+                        enabled: true,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        padding: 12,
+                        cornerRadius: 8,
+                        displayColors: false,
+                        titleFont: { size: 14, weight: 'bold' },
+                        bodyFont: { size: 13 },
+                        callbacks: {
+                            title: function(context) {
+                                return `⏰ ${context[0].label}`;
+                            },
+                            label: function(context) {
+                                const value = context.parsed.y;
+                                const units = {
+                                    'bpm': 'bpm',
+                                    'spo2': '%',
+                                    'temp': '°C',
+                                    'humidity': '%'
+                                };
+                                const unit = units[metricType] || '';
+                                return `📊 Value: ${value.toFixed(1)} ${unit}`;
+                            }
+                        }
                     }
                 },
-                x: {
-                    ticks: {
-                        color: getComputedStyle(document.documentElement).getPropertyValue('--text-primary')
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        grace: '5%',
+                        ticks: {
+                            color: getComputedStyle(document.documentElement).getPropertyValue('--text-primary'),
+                            font: { size: 12 }
+                        },
+                        grid: {
+                            color: getComputedStyle(document.documentElement).getPropertyValue('--border-color')
+                        }
                     },
-                    grid: {
-                        color: getComputedStyle(document.documentElement).getPropertyValue('--border-color')
+                    x: {
+                        ticks: {
+                            color: getComputedStyle(document.documentElement).getPropertyValue('--text-primary'),
+                            font: { size: 11 },
+                            maxRotation: 45,
+                            minRotation: 0
+                        },
+                        grid: {
+                            color: getComputedStyle(document.documentElement).getPropertyValue('--border-color')
+                        }
                     }
                 }
             }
-        }
-    });
+        });
 
-    // Setup live update interval - update chart every 1000ms (new data comes every 2s)
-    modalState.fullscreenUpdateInterval = setInterval(updateFullscreenChart, 1000);
+        console.log('✅ Fullscreen chart created successfully');
+
+        // Setup live update interval - update chart every 1000ms (new data comes every 2s)
+        modalState.fullscreenUpdateInterval = setInterval(updateFullscreenChart, 1000);
+    } catch (error) {
+        console.error('❌ Error creating fullscreen chart:', error);
+    }
 }
 
 /**
