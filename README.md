@@ -2,7 +2,7 @@
 
 A real-time health monitoring dashboard built with HTML, CSS, and vanilla JavaScript. Connects to the PulseStream backend via Socket.IO to display live patient health metrics.
 
-## 📋 Features
+## 📋 Features 
 
 ✅ **Real-time Data Updates** - Socket.IO connection for live streaming  
 ✅ **Multi-Patient Support** - Switch between patients instantly  
