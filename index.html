@@ -230,7 +230,14 @@
             <button class="close-fullscreen" id="closeFullscreenBtn">✕</button>
             <h2 id="fullscreenTitle">Graph View</h2>
             <div class="fullscreen-chart-container">
-                <canvas id="fullscreenChart"></canvas>
+                <div style="position: relative; flex: 1; width: 100%; min-height: 0;">
+                    <canvas id="fullscreenChart"></canvas>
+                </div>
+                <div class="slider-container" style="display: flex; align-items: center; gap: 10px; margin-top: 15px; width: 100%;">
+                    <span style="font-size: 12px; color: #666; font-weight: bold;">Past</span>
+                    <input type="range" id="fullscreenSlider" min="0" max="100" value="100" style="flex: 1; cursor: pointer; height: 6px; background: #e5e7eb; border-radius: 5px; outline: none; appearance: none;">
+                    <span style="font-size: 12px; color: #666; font-weight: bold;">Latest</span>
+                </div>
             </div>
         </div>
     </div>
@@ -271,6 +278,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     <!-- Socket.IO Client -->
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
-    <script src="app.js?v=5.0"></script>
+    <script src="app.js?v=8.0"></script>
 </body>
 </html>
