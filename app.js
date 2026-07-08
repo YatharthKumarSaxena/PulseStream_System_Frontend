@@ -272,31 +272,16 @@ function addToChartData(current) {
  * Keeps only data points from the last N minutes
  */
 function filterChartDataByTimeWindow() {
-    const windowMs = state.currentWindow * 60 * 1000; // Convert minutes to milliseconds
-    const cutoffTime = Date.now() - windowMs;
+    // Keep up to 24 hours of data in the frontend to allow panning back arbitrary amounts
+    const maxHistoryMs = 24 * 60 * 60 * 1000;
+    const cutoffTime = Date.now() - maxHistoryMs;
 
-    // Filter each metric's data to only include points within the time window
     state.chartData.bpm = state.rawChartData.bpm.filter(point => point.t >= cutoffTime);
     state.chartData.spo2 = state.rawChartData.spo2.filter(point => point.t >= cutoffTime);
     state.chartData.temp = state.rawChartData.temp.filter(point => point.t >= cutoffTime);
     state.chartData.humidity = state.rawChartData.humidity.filter(point => point.t >= cutoffTime);
 
-    // Keep only last 100 points for display even within window
-    const MAX_DISPLAY_POINTS = 100;
-    if (state.chartData.bpm.length > MAX_DISPLAY_POINTS) {
-        state.chartData.bpm = state.chartData.bpm.slice(-MAX_DISPLAY_POINTS);
-    }
-    if (state.chartData.spo2.length > MAX_DISPLAY_POINTS) {
-        state.chartData.spo2 = state.chartData.spo2.slice(-MAX_DISPLAY_POINTS);
-    }
-    if (state.chartData.temp.length > MAX_DISPLAY_POINTS) {
-        state.chartData.temp = state.chartData.temp.slice(-MAX_DISPLAY_POINTS);
-    }
-    if (state.chartData.humidity.length > MAX_DISPLAY_POINTS) {
-        state.chartData.humidity = state.chartData.humidity.slice(-MAX_DISPLAY_POINTS);
-    }
-
-    console.log(`📊 Filtered data for ${state.currentWindow}min window - BPM: ${state.chartData.bpm.length} points`);
+    console.log(`📊 Kept up to 24h of history for sliding. Points: ${state.chartData.bpm.length}`);
 }
 
 /**
@@ -337,11 +322,16 @@ function calculateStatsFromAccumulatedData() {
         };
     };
     
-    // Update stats from accumul ated chart data (filtered by time window)
-    const bpmStats = calculateMetricStats(state.chartData.bpm, 'bpm');
-    const spo2Stats = calculateMetricStats(state.chartData.spo2, 'spo2');
-    const tempStats = calculateMetricStats(state.chartData.temp, 'temp');
-    const humidityStats = calculateMetricStats(state.chartData.humidity, 'humidity');
+    // Filter data for stats calculation to ONLY include points within the currently selected time window
+    const windowMs = state.currentWindow * 60 * 1000;
+    const cutoffTime = Date.now() - windowMs;
+    const filterForWindow = (arr) => arr.filter(point => point.t >= cutoffTime);
+    
+    // Update stats from the actual time window data
+    const bpmStats = calculateMetricStats(filterForWindow(state.chartData.bpm), 'bpm');
+    const spo2Stats = calculateMetricStats(filterForWindow(state.chartData.spo2), 'spo2');
+    const tempStats = calculateMetricStats(filterForWindow(state.chartData.temp), 'temp');
+    const humidityStats = calculateMetricStats(filterForWindow(state.chartData.humidity), 'humidity');
     
     state.metrics.bpm = {
         current: state.metrics.bpm.current,
@@ -646,6 +636,41 @@ function initializeCharts() {
                                 return `📊 ${value.toFixed(1)} ${unit}`;
                             }
                         }
+                    },
+                    zoom: {
+                        pan: {
+                            enabled: true,
+                            mode: 'x',
+                            onPanStart: function({chart}) {
+                                chart.userInteracting = true;
+                            },
+                            onPanComplete: function({chart}) {
+                                const maxIndex = chart.scales.x.max;
+                                if (maxIndex >= chart.data.labels.length - 2) {
+                                    chart.userInteracting = false;
+                                }
+                                const metric = chart.canvas.id.replace('Chart', '');
+                                const slider = document.getElementById(`${metric}Slider`);
+                                if (slider) slider.value = Math.max(0, chart.scales.x.min || 0);
+                            }
+                        },
+                        zoom: {
+                            wheel: { enabled: true },
+                            pinch: { enabled: true },
+                            mode: 'x',
+                            onZoomStart: function({chart}) {
+                                chart.userInteracting = true;
+                            },
+                            onZoomComplete: function({chart}) {
+                                const maxIndex = chart.scales.x.max;
+                                if (maxIndex >= chart.data.labels.length - 2) {
+                                    chart.userInteracting = false;
+                                }
+                                const metric = chart.canvas.id.replace('Chart', '');
+                                const slider = document.getElementById(`${metric}Slider`);
+                                if (slider) slider.value = Math.max(0, chart.scales.x.min || 0);
+                            }
+                        }
                     }
                 },
                 scales: {
@@ -694,6 +719,38 @@ function updateCharts() {
             chart.data.labels = validData.map(p => p.x);
             chart.data.datasets[0].data = validData.map(p => p.y);
 
+            // Compute VIEW_LIMIT dynamically based on the current window.
+            // Assuming approx 1 data point per second, window in minutes * 60.
+            // Ensure minimum view limit is 10 points.
+            const VIEW_LIMIT = Math.max(10, Math.ceil(state.currentWindow * 60));
+            const totalPoints = validData.length;
+            const slider = document.getElementById(`${metric}Slider`);
+
+            if (totalPoints > VIEW_LIMIT) {
+                const maxSliderValue = totalPoints - VIEW_LIMIT;
+                if (slider) {
+                    slider.parentElement.style.display = 'flex';
+                    slider.max = maxSliderValue;
+                    
+                    if (!chart.userInteracting) {
+                        slider.value = maxSliderValue;
+                        chart.options.scales.x.min = maxSliderValue;
+                        chart.options.scales.x.max = totalPoints - 1;
+                    } else {
+                        const sliderVal = parseInt(slider.value);
+                        chart.options.scales.x.min = sliderVal;
+                        chart.options.scales.x.max = sliderVal + VIEW_LIMIT - 1;
+                    }
+                } else if (!chart.userInteracting) {
+                    chart.options.scales.x.min = totalPoints - VIEW_LIMIT;
+                    chart.options.scales.x.max = totalPoints - 1;
+                }
+            } else {
+                if (slider) slider.parentElement.style.display = 'none';
+                delete chart.options.scales.x.min;
+                delete chart.options.scales.x.max;
+            }
+
             chart.update('none'); // Update without animation for smooth real-time updates
         } catch (error) {
             console.error(`❌ Error updating chart for ${metric}:`, error);
@@ -730,7 +787,7 @@ function changeTimeWindow(minutes) {
     // Update button states
     document.querySelectorAll('.btn-window').forEach(btn => {
         btn.classList.remove('active');
-        if (parseInt(btn.dataset.window) === minutes) {
+        if (parseFloat(btn.dataset.window) === minutes) {
             btn.classList.add('active');
         }
     });
@@ -760,9 +817,56 @@ function attachEventListeners() {
         console.log(`📍 Attaching listener to button: ${btn.dataset.window}m`);
         btn.addEventListener('click', (e) => {
             console.log(`✅ Button clicked: ${btn.dataset.window}m`, e);
-            const minutes = parseInt(btn.dataset.window);
+            const minutes = parseFloat(btn.dataset.window);
             changeTimeWindow(minutes);
         });
+    });
+
+    // Custom time window
+    const customWindowBtn = document.getElementById('customWindowBtn');
+    const customWindowInput = document.getElementById('customWindowInput');
+    const customWindowUnit = document.getElementById('customWindowUnit');
+    if (customWindowBtn && customWindowInput && customWindowUnit) {
+        customWindowBtn.addEventListener('click', () => {
+            const value = parseFloat(customWindowInput.value);
+            const unit = customWindowUnit.value;
+            if (!isNaN(value) && value > 0) {
+                let minutes = value;
+                if (unit === 'sec') minutes = value / 60;
+                else if (unit === 'hrs') minutes = value * 60;
+                else if (unit === 'days') minutes = value * 60 * 24;
+                changeTimeWindow(minutes);
+            } else {
+                alert('Please enter a valid number (greater than 0).');
+            }
+        });
+    }
+
+    // Slider event listeners for manual panning
+    ['bpm', 'spo2', 'temp', 'humidity'].forEach(metric => {
+        const slider = document.getElementById(`${metric}Slider`);
+        const chart = state.chartInstances[metric];
+        if (slider && chart) {
+            slider.addEventListener('mousedown', () => { chart.userInteracting = true; });
+            slider.addEventListener('touchstart', () => { chart.userInteracting = true; }, {passive: true});
+            
+            slider.addEventListener('input', (e) => {
+                chart.userInteracting = true;
+                const val = parseInt(e.target.value);
+                const VIEW_LIMIT = Math.max(10, Math.ceil(state.currentWindow * 60));
+                chart.options.scales.x.min = val;
+                chart.options.scales.x.max = val + VIEW_LIMIT - 1;
+                chart.update('none');
+            });
+
+            const resetIfLatest = (e) => {
+                if (parseInt(e.target.value) >= parseInt(e.target.max)) {
+                    chart.userInteracting = false;
+                }
+            };
+            slider.addEventListener('mouseup', resetIfLatest);
+            slider.addEventListener('touchend', resetIfLatest);
+        }
     });
 
     // Night mode button
