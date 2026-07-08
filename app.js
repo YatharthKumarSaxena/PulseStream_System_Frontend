@@ -7,7 +7,7 @@
 // Configuration
 // ========================================
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = 'https://pulsestream-system-backend.onrender.com';
 const MAX_CHART_POINTS = 100;
 const CHART_COLORS = {
     bpm: 'rgb(239, 68, 68)',
