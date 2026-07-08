@@ -843,14 +843,20 @@ function attachEventListeners() {
     }
 
     // Slider event listeners for manual panning
-    ['bpm', 'spo2', 'temp', 'humidity'].forEach(metric => {
+    // Slider event listeners for manual panning
+    ['bpm', 'spo2', 'temp', 'humidity', 'fullscreen'].forEach(metric => {
         const slider = document.getElementById(`${metric}Slider`);
-        const chart = state.chartInstances[metric];
-        if (slider && chart) {
-            slider.addEventListener('mousedown', () => { chart.userInteracting = true; });
-            slider.addEventListener('touchstart', () => { chart.userInteracting = true; }, {passive: true});
+        if (slider) {
+            slider.addEventListener('mousedown', () => { 
+                if(state.chartInstances[metric]) state.chartInstances[metric].userInteracting = true; 
+            });
+            slider.addEventListener('touchstart', () => { 
+                if(state.chartInstances[metric]) state.chartInstances[metric].userInteracting = true; 
+            }, {passive: true});
             
             slider.addEventListener('input', (e) => {
+                const chart = state.chartInstances[metric];
+                if (!chart) return;
                 chart.userInteracting = true;
                 const val = parseInt(e.target.value);
                 const VIEW_LIMIT = Math.max(10, Math.ceil(state.currentWindow * 60));
@@ -860,6 +866,8 @@ function attachEventListeners() {
             });
 
             const resetIfLatest = (e) => {
+                const chart = state.chartInstances[metric];
+                if (!chart) return;
                 if (parseInt(e.target.value) >= parseInt(e.target.max)) {
                     chart.userInteracting = false;
                 }
@@ -1014,6 +1022,36 @@ function updateFullscreenChart() {
         // Update chart data
         chart.data.labels = validData.map(p => p.x);
         chart.data.datasets[0].data = validData.map(p => p.y);
+
+        const VIEW_LIMIT = Math.max(10, Math.ceil(state.currentWindow * 60));
+        const totalPoints = validData.length;
+        const slider = document.getElementById('fullscreenSlider');
+
+        if (totalPoints > VIEW_LIMIT) {
+            const maxSliderValue = totalPoints - VIEW_LIMIT;
+            if (slider) {
+                slider.parentElement.style.display = 'flex';
+                slider.max = maxSliderValue;
+                
+                if (!chart.userInteracting) {
+                    slider.value = maxSliderValue;
+                    chart.options.scales.x.min = maxSliderValue;
+                    chart.options.scales.x.max = totalPoints - 1;
+                } else {
+                    const sliderVal = parseInt(slider.value);
+                    chart.options.scales.x.min = sliderVal;
+                    chart.options.scales.x.max = sliderVal + VIEW_LIMIT - 1;
+                }
+            } else if (!chart.userInteracting) {
+                chart.options.scales.x.min = totalPoints - VIEW_LIMIT;
+                chart.options.scales.x.max = totalPoints - 1;
+            }
+        } else {
+            if (slider) slider.parentElement.style.display = 'none';
+            delete chart.options.scales.x.min;
+            delete chart.options.scales.x.max;
+        }
+
         chart.update('none'); // Update without animation
         
     } catch (error) {
@@ -1158,6 +1196,39 @@ function openFullscreenGraph(metricType, chartData) {
                                 };
                                 const unit = units[metricType] || '';
                                 return `📊 Value: ${value.toFixed(1)} ${unit}`;
+                            }
+                        }
+                    },
+                    zoom: {
+                        pan: {
+                            enabled: true,
+                            mode: 'x',
+                            onPanStart: function({chart}) {
+                                chart.userInteracting = true;
+                            },
+                            onPanComplete: function({chart}) {
+                                const maxIndex = chart.scales.x.max;
+                                if (maxIndex >= chart.data.labels.length - 2) {
+                                    chart.userInteracting = false;
+                                }
+                                const slider = document.getElementById('fullscreenSlider');
+                                if (slider) slider.value = Math.max(0, chart.scales.x.min || 0);
+                            }
+                        },
+                        zoom: {
+                            wheel: { enabled: true },
+                            pinch: { enabled: true },
+                            mode: 'x',
+                            onZoomStart: function({chart}) {
+                                chart.userInteracting = true;
+                            },
+                            onZoomComplete: function({chart}) {
+                                const maxIndex = chart.scales.x.max;
+                                if (maxIndex >= chart.data.labels.length - 2) {
+                                    chart.userInteracting = false;
+                                }
+                                const slider = document.getElementById('fullscreenSlider');
+                                if (slider) slider.value = Math.max(0, chart.scales.x.min || 0);
                             }
                         }
                     }
