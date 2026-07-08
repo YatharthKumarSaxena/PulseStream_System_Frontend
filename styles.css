@@ -432,6 +432,9 @@ body {
     border: 2px solid #e5e7eb;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
     position: relative;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
 }
 
 .chart-container .zoom-btn {
@@ -726,18 +729,21 @@ body {
         grid-template-columns: repeat(2, 1fr);
         padding: 20px 15px;
         gap: 15px;
+        min-width: 0;
     }
 
     .charts-section {
         grid-template-columns: 1fr;
         padding: 20px 15px;
         gap: 20px;
+        min-width: 0;
     }
 
     .controls-section {
         grid-template-columns: 1fr;
         padding: 20px 15px;
         gap: 15px;
+        min-width: 0;
     }
 
     .button-group {
